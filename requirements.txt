@@ -2,3 +2,4 @@ Skyfield==1.49
 requests==2.31.0
 python-dotenv==1.0.0
 
+pytest==8.3.0
