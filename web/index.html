@@ -1,0 +1,539 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Deep Space Drifter</title>
+
+  <!-- CesiumJS -->
+  <script src="https://cesium.com/downloads/cesiumjs/releases/1.111/Build/Cesium/Cesium.js"></script>
+  <link href="https://cesium.com/downloads/cesiumjs/releases/1.111/Build/Cesium/Widgets/widgets.css" rel="stylesheet">
+
+  <style>
+    :root {
+      --bg:           #040a14;
+      --surface:      #080f1e;
+      --surface-2:    #0d1728;
+      --border:       #1a2a45;
+      --accent:       #1e90ff;
+      --accent-dim:   #0d4a8f;
+      --accent-glow:  #1e90ff44;
+      --text:         #c8d8f0;
+      --text-dim:     #5a7a9a;
+      --warn:         #f0a020;
+      --danger:       #e03050;
+      --green:        #20c080;
+      --font-mono:    'JetBrains Mono', 'Fira Code', 'Consolas', monospace;
+      --font-ui:      'Inter', 'Segoe UI', system-ui, sans-serif;
+    }
+
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: var(--font-ui);
+      overflow: hidden;
+      height: 100vh;
+      width: 100vw;
+    }
+
+    #cesiumContainer {
+      position: absolute;
+      inset: 0;
+      z-index: 0;
+    }
+
+    /* ── Header ── */
+    #header {
+      position: absolute;
+      top: 0; left: 0; right: 0;
+      z-index: 10;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 12px 20px;
+      background: linear-gradient(180deg, rgba(4,10,20,0.95) 0%, transparent 100%);
+      border-bottom: 1px solid var(--border);
+      backdrop-filter: blur(4px);
+    }
+
+    .brand {
+      display: flex;
+      align-items: baseline;
+      gap: 10px;
+    }
+    .brand-name {
+      font-family: var(--font-mono);
+      font-size: 15px;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      color: #fff;
+    }
+    .brand-name span { color: var(--accent); }
+    .brand-tag {
+      font-size: 10px;
+      letter-spacing: 0.18em;
+      color: var(--text-dim);
+      text-transform: uppercase;
+    }
+
+    .header-status {
+      display: flex;
+      gap: 20px;
+      align-items: center;
+    }
+    .stat-pill {
+      display: flex;
+      flex-direction: column;
+      align-items: flex-end;
+    }
+    .stat-label { font-size: 9px; letter-spacing: 0.12em; color: var(--text-dim); text-transform: uppercase; }
+    .stat-value { font-family: var(--font-mono); font-size: 14px; color: var(--accent); }
+    .stat-value.warn { color: var(--warn); }
+    .stat-value.danger { color: var(--danger); }
+    .stat-value.ok { color: var(--green); }
+
+    /* ── Group selector ── */
+    #group-bar {
+      position: absolute;
+      top: 60px;
+      left: 50%;
+      transform: translateX(-50%);
+      z-index: 10;
+      display: flex;
+      gap: 4px;
+      background: rgba(8,15,30,0.85);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 4px;
+      backdrop-filter: blur(8px);
+    }
+    .group-btn {
+      padding: 4px 12px;
+      border: none;
+      border-radius: 4px;
+      background: transparent;
+      color: var(--text-dim);
+      font-family: var(--font-mono);
+      font-size: 11px;
+      letter-spacing: 0.05em;
+      cursor: pointer;
+      transition: all 0.15s;
+    }
+    .group-btn:hover { background: var(--surface-2); color: var(--text); }
+    .group-btn.active { background: var(--accent-dim); color: var(--accent); }
+
+    /* ── Side panel ── */
+    #panel {
+      position: absolute;
+      top: 100px; right: 16px;
+      z-index: 10;
+      width: 280px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      max-height: calc(100vh - 120px);
+      overflow-y: auto;
+    }
+
+    .card {
+      background: rgba(8,15,30,0.88);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 12px 14px;
+      backdrop-filter: blur(10px);
+    }
+    .card-title {
+      font-size: 9px;
+      letter-spacing: 0.15em;
+      color: var(--text-dim);
+      text-transform: uppercase;
+      margin-bottom: 8px;
+    }
+
+    /* weather card */
+    .kp-display {
+      display: flex;
+      align-items: baseline;
+      gap: 8px;
+      margin-bottom: 4px;
+    }
+    .kp-number {
+      font-family: var(--font-mono);
+      font-size: 36px;
+      font-weight: 700;
+      line-height: 1;
+    }
+    .kp-label { font-size: 12px; color: var(--text-dim); }
+    .kp-storm { font-size: 11px; margin-bottom: 8px; }
+    .sw-row { display: flex; justify-content: space-between; margin-top: 4px; }
+    .sw-key { font-size: 10px; color: var(--text-dim); }
+    .sw-val { font-family: var(--font-mono); font-size: 11px; }
+
+    /* satellite list */
+    #sat-list {
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+      max-height: 220px;
+      overflow-y: auto;
+    }
+    .sat-item {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 4px 6px;
+      border-radius: 4px;
+      cursor: pointer;
+      transition: background 0.1s;
+    }
+    .sat-item:hover { background: var(--surface-2); }
+    .sat-item.selected { background: var(--accent-dim); }
+    .sat-name { font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 170px; }
+    .sat-alt  { font-family: var(--font-mono); font-size: 10px; color: var(--text-dim); }
+
+    /* detail card */
+    #detail-card { display: none; }
+    .detail-row { display: flex; justify-content: space-between; padding: 3px 0; border-bottom: 1px solid var(--border); }
+    .detail-row:last-child { border-bottom: none; }
+    .detail-key { font-size: 10px; color: var(--text-dim); }
+    .detail-val { font-family: var(--font-mono); font-size: 11px; }
+
+    /* ── Bottom bar ── */
+    #bottom-bar {
+      position: absolute;
+      bottom: 0; left: 0; right: 0;
+      z-index: 10;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 8px 20px;
+      background: linear-gradient(0deg, rgba(4,10,20,0.95) 0%, transparent 100%);
+      font-size: 10px;
+      color: var(--text-dim);
+      font-family: var(--font-mono);
+    }
+
+    #epoch-display { color: var(--accent); letter-spacing: 0.08em; }
+
+    .pulse-dot {
+      display: inline-block;
+      width: 7px; height: 7px;
+      border-radius: 50%;
+      background: var(--green);
+      margin-right: 6px;
+      animation: pulse 2s ease-in-out infinite;
+    }
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50%       { opacity: 0.3; }
+    }
+
+    /* ── Scrollbar ── */
+    ::-webkit-scrollbar { width: 4px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+  </style>
+</head>
+<body>
+
+<div id="cesiumContainer"></div>
+
+<!-- Header -->
+<header id="header">
+  <div class="brand">
+    <div class="brand-name">DEEP<span>&nbsp;SPACE</span>&nbsp;DRIFTER</div>
+    <div class="brand-tag">Observe · Analyze · Discover</div>
+  </div>
+  <div class="header-status">
+    <div class="stat-pill">
+      <div class="stat-label">Satellites</div>
+      <div class="stat-value" id="hdr-sat-count">—</div>
+    </div>
+    <div class="stat-pill">
+      <div class="stat-label">Kp Index</div>
+      <div class="stat-value" id="hdr-kp">—</div>
+    </div>
+    <div class="stat-pill">
+      <div class="stat-label">Solar Wind</div>
+      <div class="stat-value" id="hdr-sw">—</div>
+    </div>
+    <div class="stat-pill">
+      <div class="stat-label">Status</div>
+      <div class="stat-value ok"><span class="pulse-dot"></span>LIVE</div>
+    </div>
+  </div>
+</header>
+
+<!-- Group selector -->
+<div id="group-bar">
+  <button class="group-btn active" data-group="stations_tle">STATIONS</button>
+  <button class="group-btn" data-group="starlink">STARLINK</button>
+  <button class="group-btn" data-group="visual">VISUAL</button>
+  <button class="group-btn" data-group="debris">DEBRIS</button>
+</div>
+
+<!-- Side panel -->
+<div id="panel">
+
+  <!-- Space weather card -->
+  <div class="card" id="weather-card">
+    <div class="card-title">Space Weather · NOAA</div>
+    <div class="kp-display">
+      <div class="kp-number" id="kp-number">—</div>
+      <div class="kp-label">Kp index</div>
+    </div>
+    <div class="kp-storm" id="kp-storm">Loading...</div>
+    <div class="sw-row">
+      <div class="sw-key">Solar wind</div>
+      <div class="sw-val" id="sw-speed">— km/s</div>
+    </div>
+    <div class="sw-row">
+      <div class="sw-key">Density</div>
+      <div class="sw-val" id="sw-density">— p/cm³</div>
+    </div>
+    <div class="sw-row">
+      <div class="sw-key">Forecast peak Kp</div>
+      <div class="sw-val" id="sw-forecast">—</div>
+    </div>
+  </div>
+
+  <!-- Satellite list card -->
+  <div class="card">
+    <div class="card-title">Tracked Objects</div>
+    <div id="sat-list">
+      <div style="color:var(--text-dim);font-size:11px">Loading...</div>
+    </div>
+  </div>
+
+  <!-- Detail card -->
+  <div class="card" id="detail-card">
+    <div class="card-title" id="detail-name">—</div>
+    <div id="detail-rows"></div>
+  </div>
+
+</div>
+
+<!-- Bottom bar -->
+<div id="bottom-bar">
+  <div><span class="pulse-dot"></span>Live · refreshes every 10s</div>
+  <div id="epoch-display">—</div>
+  <div>v0.3.0 · Deep Space Drifter</div>
+</div>
+
+<script>
+// ── Config ──────────────────────────────────────────────────────────────────
+const API_BASE = "http://127.0.0.1:5000";
+const REFRESH_MS = 10000;
+
+// You can get a free Cesium Ion token at https://cesium.com/ion/tokens
+// Without it, the base imagery still loads but some assets may not
+Cesium.Ion.defaultAccessToken = "your_cesium_ion_token_here";
+
+// ── Cesium setup ─────────────────────────────────────────────────────────────
+const viewer = new Cesium.Viewer("cesiumContainer", {
+  imageryProvider: new Cesium.TileMapServiceImageryProvider({
+    url: Cesium.buildModuleUrl("Assets/Textures/NaturalEarthII"),
+  }),
+  baseLayerPicker: false,
+  geocoder: false,
+  homeButton: false,
+  sceneModePicker: false,
+  navigationHelpButton: false,
+  animation: false,
+  timeline: false,
+  fullscreenButton: false,
+  infoBox: false,
+  selectionIndicator: false,
+  skyBox: false,
+  skyAtmosphere: false,
+});
+
+viewer.scene.backgroundColor = Cesium.Color.fromCssColorString("#040a14");
+viewer.scene.globe.baseColor = Cesium.Color.fromCssColorString("#060e1e");
+viewer.camera.flyTo({
+  destination: Cesium.Cartesian3.fromDegrees(0, 20, 22000000),
+  duration: 2,
+});
+
+// ── State ────────────────────────────────────────────────────────────────────
+let currentGroup = "stations_tle";
+let currentPositions = [];
+let selectedSat = null;
+const entities = new Map();
+
+// ── Satellite color by type ──────────────────────────────────────────────────
+function satColor(name) {
+  const n = name.toUpperCase();
+  if (n.includes("ISS") || n.includes("CSS") || n.includes("TIANHE") || n.includes("SOYUZ")
+      || n.includes("DRAGON") || n.includes("CYGNUS") || n.includes("PROGRESS")
+      || n.includes("TIANZHOU") || n.includes("SHENZHOU")) {
+    return Cesium.Color.fromCssColorString("#1e90ff");   // blue — crewed/station
+  }
+  if (n.includes("STARLINK")) return Cesium.Color.fromCssColorString("#20c080");
+  if (n.includes("DEB") || n.includes("DEBRIS") || n.includes("FRAG") || n.includes("OBJECT")) {
+    return Cesium.Color.fromCssColorString("#e03050");   // red — debris
+  }
+  return Cesium.Color.fromCssColorString("#a0c0f0");     // default — grey-blue
+}
+
+// ── Render satellites on globe ───────────────────────────────────────────────
+function renderSatellites(positions) {
+  const seen = new Set();
+
+  for (const p of positions) {
+    if (!p.lat || !p.lon) continue;
+    seen.add(p.name);
+    const color = p.name === selectedSat ? Cesium.Color.YELLOW : satColor(p.name);
+    const size  = p.name === selectedSat ? 12 : 6;
+
+    if (entities.has(p.name)) {
+      const e = entities.get(p.name);
+      e.position = Cesium.Cartesian3.fromDegrees(p.lon, p.lat, p.alt_km * 1000);
+      e.point.color = color;
+      e.point.pixelSize = size;
+    } else {
+      const e = viewer.entities.add({
+        name: p.name,
+        position: Cesium.Cartesian3.fromDegrees(p.lon, p.lat, p.alt_km * 1000),
+        point: {
+          pixelSize: size,
+          color: color,
+          outlineColor: Cesium.Color.fromCssColorString("#040a14"),
+          outlineWidth: 1,
+          scaleByDistance: new Cesium.NearFarScalar(1e5, 2.0, 1e8, 0.6),
+        },
+      });
+      e.description = p.name;
+      entities.set(p.name, e);
+    }
+  }
+
+  // remove entities no longer in the current set
+  for (const [name, entity] of entities) {
+    if (!seen.has(name)) {
+      viewer.entities.remove(entity);
+      entities.delete(name);
+    }
+  }
+}
+
+// ── Satellite list panel ──────────────────────────────────────────────────────
+function renderSatList(positions) {
+  const list = document.getElementById("sat-list");
+  list.innerHTML = positions.map(p => `
+    <div class="sat-item ${p.name === selectedSat ? 'selected' : ''}"
+         onclick="selectSat('${p.name.replace(/'/g, "\\'")}')">
+      <div class="sat-name">${p.name}</div>
+      <div class="sat-alt">${p.alt_km?.toFixed(0) ?? '—'} km</div>
+    </div>
+  `).join("");
+  document.getElementById("hdr-sat-count").textContent = positions.length;
+}
+
+// ── Select a satellite ────────────────────────────────────────────────────────
+function selectSat(name) {
+  selectedSat = selectedSat === name ? null : name;
+  renderSatellites(currentPositions);
+  renderSatList(currentPositions);
+
+  const card = document.getElementById("detail-card");
+  const p = currentPositions.find(x => x.name === name);
+
+  if (selectedSat && p) {
+    card.style.display = "block";
+    document.getElementById("detail-name").textContent = p.name;
+    document.getElementById("detail-rows").innerHTML = `
+      <div class="detail-row"><div class="detail-key">Latitude</div><div class="detail-val">${p.lat?.toFixed(4)}°</div></div>
+      <div class="detail-row"><div class="detail-key">Longitude</div><div class="detail-val">${p.lon?.toFixed(4)}°</div></div>
+      <div class="detail-row"><div class="detail-key">Altitude</div><div class="detail-val">${p.alt_km?.toFixed(2)} km</div></div>
+      <div class="detail-row"><div class="detail-key">Speed</div><div class="detail-val">${p.speed_kms?.toFixed(3)} km/s</div></div>
+      <div class="detail-row"><div class="detail-key">Epoch</div><div class="detail-val">${p.epoch}</div></div>
+    `;
+    // fly camera to selected satellite
+    const entity = entities.get(name);
+    if (entity) {
+      viewer.flyTo(entity, {
+        offset: new Cesium.HeadingPitchRange(0, Cesium.Math.toRadians(-30), 3000000),
+        duration: 1.5,
+      });
+    }
+  } else {
+    card.style.display = "none";
+  }
+}
+
+// ── Click on globe to select ──────────────────────────────────────────────────
+viewer.screenSpaceEventHandler.setInputAction(click => {
+  const picked = viewer.scene.pick(click.position);
+  if (Cesium.defined(picked) && picked.id?.description) {
+    selectSat(picked.id.description.getValue());
+  }
+}, Cesium.ScreenSpaceEventType.LEFT_CLICK);
+
+// ── Fetch positions ───────────────────────────────────────────────────────────
+async function fetchPositions() {
+  try {
+    const res = await fetch(`${API_BASE}/api/satellites/live?group=${currentGroup}`);
+    const json = await res.json();
+    if (!json.ok) return;
+    currentPositions = json.data.positions.filter(p => !p.error);
+    renderSatellites(currentPositions);
+    renderSatList(currentPositions);
+    const epoch = currentPositions[0]?.epoch ?? "—";
+    document.getElementById("epoch-display").textContent = epoch;
+  } catch {
+    console.warn("API unreachable — is api.py running?");
+  }
+}
+
+// ── Fetch space weather ───────────────────────────────────────────────────────
+async function fetchWeather() {
+  try {
+    const res = await fetch(`${API_BASE}/api/weather/current`);
+    const json = await res.json();
+    if (!json.ok) return;
+    const d = json.data;
+
+    const kpEl = document.getElementById("kp-number");
+    const kp = d.kp_current ?? 0;
+    kpEl.textContent = kp.toFixed(2);
+    kpEl.style.color = kp >= 7 ? "var(--danger)" : kp >= 5 ? "var(--warn)" : "var(--green)";
+
+    document.getElementById("kp-storm").textContent  = d.storm_level ?? "—";
+    document.getElementById("sw-speed").textContent   = d.solar_wind_speed_kms ? `${d.solar_wind_speed_kms} km/s` : "—";
+    document.getElementById("sw-density").textContent = d.solar_wind_density_pcm3 ? `${d.solar_wind_density_pcm3} p/cm³` : "—";
+    document.getElementById("sw-forecast").textContent = d.kp_max_predicted ? `${d.kp_max_predicted} (${d.kp_max_time?.slice(0,10)})` : "—";
+
+    const hdrKp = document.getElementById("hdr-kp");
+    hdrKp.textContent = kp.toFixed(1);
+    hdrKp.className = `stat-value ${kp >= 7 ? "danger" : kp >= 5 ? "warn" : "ok"}`;
+
+    const hdrSw = document.getElementById("hdr-sw");
+    hdrSw.textContent = d.solar_wind_speed_kms ? `${d.solar_wind_speed_kms} km/s` : "—";
+  } catch {
+    // weather API offline — not fatal
+  }
+}
+
+// ── Group switcher ────────────────────────────────────────────────────────────
+document.querySelectorAll(".group-btn").forEach(btn => {
+  btn.addEventListener("click", () => {
+    document.querySelectorAll(".group-btn").forEach(b => b.classList.remove("active"));
+    btn.classList.add("active");
+    currentGroup = btn.dataset.group;
+    selectedSat = null;
+    document.getElementById("detail-card").style.display = "none";
+    fetchPositions();
+  });
+});
+
+// ── Boot ──────────────────────────────────────────────────────────────────────
+fetchPositions();
+fetchWeather();
+setInterval(fetchPositions, REFRESH_MS);
+setInterval(fetchWeather, 60000);
+</script>
+</body>
+</html>
