@@ -23,6 +23,7 @@ from core.fetch import get_satellites
 from core.propagate import build_satellite, get_position, get_positions_bulk, get_pass_window
 from core import storage
 from core import spaceweather
+from core import analytics
 
 GROUPS = ["stations_tle", "active", "starlink", "visual", "debris", "last-30-days"]
 
@@ -89,6 +90,72 @@ def cmd_positions(args):
             n = storage.save_positions(positions)
             print(f"  [log] saved {n} positions to {storage.DB_PATH.name}")
         print_positions(positions, args.group, epoch)
+
+
+def cmd_analyze(args):
+    tracked = storage.get_tracked_satellites()
+    if not tracked:
+        print("\n  No satellite history found. Run 'python drifter.py --watch --log' first.\n")
+        return
+
+    print(f"\n  Deep Space Drifter  |  Intelligence Analysis")
+    print(f"  Analyzing {len(tracked)} tracked satellites...\n")
+
+    # ── Decay rates ──────────────────────────────────────────────────────────
+    rates = analytics.get_all_decay_rates()
+    if not rates:
+        print("  Not enough samples for any satellite (need >= 2 snapshots).")
+    else:
+        print(f"  {'Satellite':<28} {'Samples':>8} {'Span(h)':>8} {'Alt Δ(km)':>10} {'Decay(km/day)':>14}")
+        print(f"  {'-'*72}")
+        for r in rates:
+            span_h = round(r['span_minutes'] / 60, 2)
+            decay_str = f"{r['decay_km_per_day']:.4f}" if r['decay_km_per_day'] is not None else "need >6h"
+            flag = "" if r['reliable'] else "  ⚠"
+            print(f"  {r['name']:<28} {r['samples']:>8} {span_h:>8} {r['alt_change_km']:>10.3f} {decay_str:>14}{flag}")
+
+        unreliable = [r for r in rates if not r['reliable']]
+        if unreliable:
+            print(f"\n  ⚠  {len(unreliable)} satellite(s) need >6h of history for reliable decay rate.")
+            print(f"     Keep 'python drifter.py --watch --log' running to accumulate data.")
+
+    # ── Anomaly detection ─────────────────────────────────────────────────────
+    if args.anomalies or args.full:
+        print(f"\n  {'─'*50}")
+        print(f"  Anomaly scan  (≥{args.threshold}km deviation from local avg)\n")
+        any_found = False
+        for name in tracked:
+            hits = analytics.detect_altitude_anomalies(name, threshold_km=args.threshold)
+            if hits:
+                any_found = True
+                print(f"  !! {name}  ({len(hits)} event(s))")
+                for h in hits[:5]:
+                    print(f"     {h['epoch']}  {h['alt_km']:.1f} km  "
+                          f"(avg {h['local_avg_km']:.1f}, Δ{h['deviation_km']:+.2f} km, {h['direction']})")
+                if len(hits) > 5:
+                    print(f"     ... and {len(hits)-5} more")
+        if not any_found:
+            print("  No anomalies detected. (Need ≥11 samples per satellite for this check.)")
+
+    # ── Kp correlation for ISS ────────────────────────────────────────────────
+    if args.correlate or args.full:
+        print(f"\n  {'─'*50}")
+        print(f"  Decay × Kp correlation\n")
+        targets = [n for n in tracked if "ISS" in n.upper() and "ZARYA" in n.upper()]
+        if not targets:
+            targets = tracked[:3]  # fallback: first 3 tracked sats
+        for name in targets:
+            corr = analytics.correlate_decay_with_kp(name)
+            if corr:
+                decay_str = f"{corr['decay_km_per_day']:.4f} km/day" if corr['decay_km_per_day'] is not None else "n/a (need >6h)"
+                kp_str = f"{corr['avg_kp']}" if corr['avg_kp'] is not None else "no weather data — run 'weather --log'"
+                print(f"  {name}")
+                print(f"    Decay rate : {decay_str}")
+                print(f"    Avg Kp     : {kp_str}  ({corr['kp_samples']} samples)")
+                print(f"    Window     : {corr['window_start']} → {corr['window_end']}")
+                print()
+
+    print()
 
 
 def cmd_weather(args):
@@ -198,6 +265,13 @@ def main():
     pos_parser = subparsers.add_parser("positions", help="Track satellite positions (default)")
     _add_position_args(pos_parser)
 
+    # --- analyze ---
+    analyze_parser = subparsers.add_parser("analyze", help="Intelligence analysis — decay rates, anomalies, Kp correlation")
+    analyze_parser.add_argument("--anomalies",  action="store_true", help="Run anomaly scan")
+    analyze_parser.add_argument("--correlate",  action="store_true", help="Show decay vs Kp correlation")
+    analyze_parser.add_argument("--full",       action="store_true", help="Run all analysis (anomalies + correlation)")
+    analyze_parser.add_argument("--threshold",  type=float, default=2.0, help="Anomaly deviation threshold in km (default: 2.0)")
+
     # --- weather ---
     weather_parser = subparsers.add_parser("weather", help="Show current space weather")
     weather_parser.add_argument("--log", action="store_true",
@@ -217,7 +291,9 @@ def main():
 
     args = parser.parse_args()
 
-    if args.command == "weather":
+    if args.command == "analyze":
+        cmd_analyze(args)
+    elif args.command == "weather":
         cmd_weather(args)
     elif args.command == "history":
         cmd_history(args)
