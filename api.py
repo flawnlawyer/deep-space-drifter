@@ -23,13 +23,18 @@ Run:
 """
 
 import argparse
+import threading
+import time as _time
 from pathlib import Path
 from flask import Flask, jsonify, request, send_from_directory
+from flask_socketio import SocketIO, emit
 from core.fetch import get_satellites
 from core.propagate import build_satellite, get_positions_bulk, get_pass_window
 from core import storage, spaceweather, analytics
 
 app = Flask(__name__)
+app.config['SECRET_KEY'] = 'dsd-dev-secret'
+socketio = SocketIO(app, cors_allowed_origins="*", async_mode='threading')
 WEB_DIR = Path(__file__).parent / "web"
 
 
@@ -187,6 +192,55 @@ def index():
     })
 
 
+# ── WebSocket ─────────────────────────────────────────────────────────────────
+
+_push_thread = None
+_push_active = False
+
+def _position_broadcaster(group: str = 'stations_tle', interval: int = 10):
+    """Background thread — pushes live positions to all connected clients."""
+    while _push_active:
+        try:
+            tles = get_satellites(group)
+            positions = get_positions_bulk(tles)
+            socketio.emit('positions', {
+                'group': group,
+                'count': len(positions),
+                'positions': [p for p in positions if 'error' not in p],
+            })
+        except Exception as e:
+            print(f'[ws push] error: {e}')
+        socketio.sleep(interval)
+
+
+@socketio.on('connect')
+def on_connect():
+    global _push_thread, _push_active
+    print(f'[ws] client connected')
+    if _push_thread is None or not _push_thread.is_alive():
+        _push_active = True
+        _push_thread = socketio.start_background_task(_position_broadcaster)
+    emit('status', {'connected': True, 'version': '1.0.0'})
+
+
+@socketio.on('disconnect')
+def on_disconnect():
+    print('[ws] client disconnected')
+
+
+@socketio.on('set_group')
+def on_set_group(data):
+    """Client can request a group change — restarts broadcaster with new group."""
+    group = data.get('group', 'stations_tle')
+    global _push_thread, _push_active
+    _push_active = False
+    if _push_thread:
+        _push_thread.join(timeout=2)
+    _push_active = True
+    _push_thread = socketio.start_background_task(_position_broadcaster, group)
+    emit('status', {'group': group})
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--port", type=int, default=5000)
@@ -194,7 +248,8 @@ if __name__ == "__main__":
     parser.add_argument("--debug", action="store_true")
     args = parser.parse_args()
 
-    print(f"\n  Deep Space Drifter API v0.3.0")
-    print(f"  Running at http://{args.host}:{args.port}")
-    print(f"  Docs: http://{args.host}:{args.port}/\n")
-    app.run(host=args.host, port=args.port, debug=args.debug)
+    print(f"\n  Deep Space Drifter API v1.0.0")
+    print(f"  HTTP  → http://{args.host}:{args.port}/api")
+    print(f"  WS    → ws://{args.host}:{args.port}/socket.io")
+    print(f"  UI    → http://{args.host}:{args.port}/ui\n")
+    socketio.run(app, host=args.host, port=args.port, debug=args.debug, allow_unsafe_werkzeug=True)
