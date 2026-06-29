@@ -1,0 +1,50 @@
+@import "tailwindcss";
+
+@layer base {
+  :root {
+    --bg:         #040a14;
+    --surface:    #080f1e;
+    --surface-2:  #0d1728;
+    --border:     #1a2a45;
+    --accent:     #1e90ff;
+    --accent-dim: #0d4a8f;
+    --text:       #c8d8f0;
+    --text-dim:   #5a7a9a;
+    --warn:       #f0a020;
+    --danger:     #e03050;
+    --green:      #20c080;
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'Inter', 'Segoe UI', system-ui, sans-serif;
+    overflow: hidden;
+    height: 100vh;
+    width: 100vw;
+    margin: 0;
+  }
+
+  ::-webkit-scrollbar { width: 4px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+}
+
+@layer utilities {
+  .font-mono { font-family: 'JetBrains Mono', 'Fira Code', 'Consolas', monospace; }
+  .glass {
+    background: rgba(8, 15, 30, 0.88);
+    border: 1px solid var(--border);
+    backdrop-filter: blur(10px);
+  }
+  .text-accent  { color: var(--accent); }
+  .text-dim     { color: var(--text-dim); }
+  .text-warn    { color: var(--warn); }
+  .text-danger  { color: var(--danger); }
+  .text-ok      { color: var(--green); }
+  .bg-surface   { background: var(--surface); }
+  .bg-surface-2 { background: var(--surface-2); }
+  .border-dsd   { border-color: var(--border); }
+}
